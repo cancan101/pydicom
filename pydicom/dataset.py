@@ -77,6 +77,24 @@ except ImportError:
         have_pillow = False
 
 
+if have_numpy:
+    class RealisticInfoArray(numpy.ndarray):
+
+        def __new__(cls, input_array, info=None):
+            # Input array is an already formed ndarray instance
+            # We first cast to be our class type
+            obj = numpy.asarray(input_array).view(cls)
+            # add the new attribute to the created instance
+            obj.info = info
+            # Finally, we must return the newly created object:
+            return obj
+
+        def __array_finalize__(self, obj):
+            # see InfoArray.__array_finalize__ for comments
+            if obj is None: return
+            self.info = getattr(obj, 'info', None)
+
+
 class PropertyError(Exception):
     """For AttributeErrors caught in a property, so do not go to __getattr__"""
     #  http://docs.python.org/release/3.1.3/tutorial/errors.html#tut-userexceptions
@@ -703,6 +721,8 @@ class Dataset(dict):
         if 'PixelData' not in self:
             raise TypeError("No pixel data found in this dataset.")
 
+        source = ''
+
         # There are two cases:
         # 1) uncompressed PixelData -> use numpy
         # 2) compressed PixelData, filename is available and GDCM is
@@ -726,6 +746,7 @@ class Dataset(dict):
                 numpy_dtype = numpy_dtype.newbyteorder('S')
 
             pixel_bytearray = self.PixelData
+            source = 'uncompressed'
         elif have_gdcm and self.filename:
             # read the file using GDCM
             # FIXME this should just use self.PixelData instead of self.filename
@@ -788,8 +809,12 @@ class Dataset(dict):
                     # We revert to the old behavior which should then result
                     #   in a Numpy error later on.
                     pass
+            source = 'GDCM'
 
         pixel_array = numpy.fromstring(pixel_bytearray, dtype=numpy_dtype)
+        pixel_array = RealisticInfoArray(
+            pixel_array, info={'decode_source': source}
+        )
         length_of_pixel_array = pixel_array.nbytes
         expected_length = self.Rows * self.Columns
         if 'NumberOfFrames' in self and self.NumberOfFrames > 1:
@@ -876,8 +901,10 @@ class Dataset(dict):
                                    self.BitsAllocated))
         if self.file_meta.TransferSyntaxUID in pydicom.uid.PILSupportedCompressedPixelTransferSyntaxes:
             UncompressedPixelData = self._get_PIL_supported_compressed_pixeldata()
+            source = 'PIL'
         elif self.file_meta.TransferSyntaxUID in pydicom.uid.JPEGLSSupportedCompressedPixelTransferSyntaxes:
             UncompressedPixelData = self._get_jpeg_ls_supported_compressed_pixeldata()
+            source = 'jpeg_ls'
         else:
             msg = "The transfer syntax {0} is not currently supported.".format(self.file_meta.TransferSyntaxUID)
             raise NotImplementedError(msg)
@@ -914,6 +941,8 @@ class Dataset(dict):
         if self.file_meta.TransferSyntaxUID in pydicom.uid.JPEG2000CompressedPixelTransferSyntaxes and self.BitsStored == 16:
             # WHY IS THIS EVEN NECESSARY??
             arr &= 0x7FFF
+
+        arr = RealisticInfoArray(arr, info={'decode_source': source})
         return arr
 
     def _get_PIL_supported_compressed_pixeldata(self):
