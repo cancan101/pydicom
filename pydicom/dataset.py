@@ -980,7 +980,7 @@ class Dataset(dict):
             generic_jpeg_file_header = b''
             frame_start_from = 0
         try:
-            UncompressedPixelData = ''
+            UncompressedPixelData = bytearray()
             if 'NumberOfFrames' in self and self.NumberOfFrames > 1:
                 # multiple compressed frames
                 CompressedPixelDataSeq = pydicom.encaps.decode_data_sequence(self.PixelData)
@@ -990,14 +990,7 @@ class Dataset(dict):
                     try:
                         decompressed_image = PILImg.open(fio)
                     except IOError as e:
-                        try:
-                            message = str(e)
-                        except:
-                            try:
-                                message = unicode(e)
-                            except:
-                                message = ''
-                        raise NotImplementedError(message)
+                        raise NotImplementedError(e.message)
                     UncompressedPixelData += decompressed_image.tobytes()
             else:
                 # single compressed frame
@@ -1007,18 +1000,11 @@ class Dataset(dict):
                     fio = io.BytesIO(UncompressedPixelData)
                     decompressed_image = PILImg.open(fio)
                 except IOError as e:
-                    try:
-                        message = str(e)
-                    except:
-                        try:
-                            message = unicode(e)
-                        except:
-                            message = ''
-                    raise NotImplementedError(message)
+                    raise NotImplementedError(e.message)
                 UncompressedPixelData = decompressed_image.tobytes()
         except:
             raise
-        return UncompressedPixelData
+        return bytes(UncompressedPixelData)
 
     def _get_jpeg_ls_supported_compressed_pixeldata(self):
         """Use jpeg_ls to decompress compressed Pixel Data.
